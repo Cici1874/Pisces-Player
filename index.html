@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>看剧笔记播放器</title>
+<!-- PWA：iPad "添加到主屏幕" 后全屏打开 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="看剧笔记">
+<meta name="theme-color" content="#16161a">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+/* =====================================================================
+   颜色都在这里改。dark = 默认深色，light = 浅色模式
+   ===================================================================== */
+:root, :root[data-theme="dark"] {
+  --bg:          #16161a;   /* 页面底色 */
+  --panel:       #1e1e24;   /* 笔记区底色 */
+  --toolbar:     #101014;   /* 顶栏 */
+  --text:        #e6e6ea;   /* 普通文字（标题、按钮） */
+  --muted:       #8b8b96;   /* 次要文字 */
+  --border:      #33333d;
+  --btn:         #2a2a33;
+  --btn-on:      #4b3a6b;   /* 按钮"开"状态 */
+
+  --c-scene:     #e0a878;   /* ## 场景：棕 */
+  --c-line:      #e2c2ff;   /* ### 台词：紫字 */
+  --c-line-bg:   #43263d;   /* ### 台词：粉底 */
+  --c-bold:      #ff8cc6;   /* **加粗**：粉 */
+  --c-code:      #ff7b72;   /* `code`：红 */
+  --c-red:       #ff7b7b;   /* → P5 信号 / P6x / 不是 */
+  --c-orange:    #ffb066;   /* → register */
+  --c-blue:      #7cc0ff;   /* → 同族 */
+  --c-gray:      #9ea3ab;   /* → "例句" */
+  --c-body:      #86e0b0;   /* 正文 / = 释义 / 列表：绿 */
+
+  --active:      #ffd166;   /* 当前播放块的高亮边框 */
+  --active-bg:   #2a2a33;   /* 当前播放块的底色 */
+  --warn:        #ffb066;   /* 未匹配标记 */
+}
+:root[data-theme="light"] {
+  --bg:          #f4f3ef;
+  --panel:       #ffffff;
+  --toolbar:     #ebe9e3;
+  --text:        #2f3437;
+  --muted:       #7a7a78;
+  --border:      #dcdad4;
+  --btn:         #e2e0da;
+  --btn-on:      #d9c8f0;
+
+  --c-scene:     #8a5a3f;
+  --c-line:      #6940a5;
+  --c-line-bg:   #f5e0e9;
+  --c-bold:      #ad1a72;
+  --c-code:      #e03e3e;
+  --c-red:       #d62f2f;
+  --c-orange:    #c7620a;
+  --c-blue:      #0b6e99;
+  --c-gray:      #8a8986;
+  --c-body:      #0f7b6c;
+
+  --active:      #d9730d;
+  --active-bg:   #fbf3e6;
+  --warn:        #c7620a;
+}
+
+/* ---------- 基础布局 ---------- */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font-family: -apple-system, "PingFang SC", "Helvetica Neue", sans-serif;
+  -webkit-text-size-adjust: 100%; overflow: hidden; }
+body { display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left); }
+
+/* 顶栏：按钮都 ≥ 44px，方便手指点 */
+#toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  padding: 6px 10px; background: var(--toolbar); border-bottom: 1px solid var(--border); }
+button, .btn { min-height: 44px; min-width: 44px; padding: 0 14px; font-size: 15px;
+  border: 1px solid var(--border); border-radius: 10px; background: var(--btn); color: var(--text);
+  cursor: pointer; -webkit-tap-highlight-color: transparent; user-select: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+button.on { background: var(--btn-on); }
+#fileInput { display: none; }
+.group { display: inline-flex; align-items: center; gap: 4px; }
+#offsetVal { min-width: 76px; font-variant-numeric: tabular-nums; }
+#status { font-size: 13px; color: var(--muted); margin-right: auto; line-height: 1.35; }
+#status b { color: var(--text); font-weight: 600; }
+
+#main { flex: 1; display: flex; min-height: 0; --split: 60%; }
+#left { width: var(--split); display: flex; flex-direction: column; min-width: 0; background: #000; }
+#video { width: 100%; flex: 1; min-height: 0; background: #000; }
+#subBox { display: none; padding: 10px 14px 14px; background: var(--bg); text-align: center;
+  min-height: 72px; }
+#subBox.show { display: block; }
+#subEn { font-size: 19px; color: var(--text); }
+#subCn { font-size: 16px; color: var(--muted); margin-top: 4px; }
+
+/* 中间分隔条：可拖动 */
+#divider { width: 14px; cursor: col-resize; background: var(--toolbar); touch-action: none;
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+#divider::after { content: ""; width: 4px; height: 44px; border-radius: 2px; background: var(--border); }
+
+#right { flex: 1; min-width: 0; position: relative; background: var(--panel); }
+#notes { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch;
+  padding: 12px 16px 40vh; font-size: 16px; line-height: 1.6; }
+
+/* "跟随已暂停" 提示条，点一下立刻回到当前句 */
+#followChip { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%);
+  display: none; z-index: 2; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+#followChip.show { display: inline-flex; }
+
+/* 竖屏：上下叠放，分隔条藏起来 */
+@media (orientation: portrait) {
+  #main { flex-direction: column; }
+  #left { width: 100%; height: 42%; flex: none; }
+  #divider { display: none; }
+}
+
+/* ---------- 笔记渲染 ---------- */
+#notes h1 { font-size: 20px; margin: 4px 0 8px; color: var(--text); }
+#notes .quote { color: var(--muted); font-size: 14px; border-left: 3px solid var(--border);
+  padding-left: 10px; margin: 6px 0; }
+#notes h2 { color: var(--c-scene); font-size: 18px; margin: 22px 0 8px; }
+#notes hr { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+#notes p { margin: 2px 0; color: var(--c-body); }
+#notes p.def  { color: var(--c-body); }
+#notes p.list { color: var(--c-body); padding-left: 1.2em; text-indent: -1.2em; }
+#notes p.red    { color: var(--c-red); }
+#notes p.orange { color: var(--c-orange); }
+#notes p.blue   { color: var(--c-blue); }
+#notes p.gray   { color: var(--c-gray); }
+#notes p.body   { color: var(--c-body); }
+#notes strong { color: var(--c-bold); font-weight: 700; }
+#notes code { color: var(--c-code); background: transparent; font-family: ui-monospace, Menlo, monospace;
+  font-size: .92em; }
+
+/* 一个 ### 块 = 台词标题 + 下面的注释 */
+.block { border-radius: 10px; padding: 6px 8px; margin: 0 -8px; cursor: pointer;
+  border-left: 4px solid transparent; transition: background .2s; }
+.block.active { background: var(--active-bg); border-left-color: var(--active); }
+.block.nomatch { cursor: default; }
+.block h3 { display: inline; font-size: 16.5px; line-height: 1.7; font-weight: 600; margin: 0;
+  color: var(--c-line); background: var(--c-line-bg); padding: 2px 6px; border-radius: 4px;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone; }
+.block .h3wrap { margin: 2px 0 8px; }
+.block .time { font-size: 12px; color: var(--muted); margin-left: 6px; font-variant-numeric: tabular-nums; }
+.block .miss { font-size: 12px; color: var(--warn); margin-left: 6px; border: 1px solid var(--warn);
+  border-radius: 4px; padding: 0 4px; }
+
+#hint { color: var(--muted); font-size: 15px; line-height: 1.8; padding: 12px 4px; }
+#hint b { color: var(--text); }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <label class="btn" for="fileInput">📂 打开文件</label>
+  <input id="fileInput" type="file" multiple>
+  <span id="status">选 3 个文件：视频 + .ass + .md</span>
+
+  <span class="group" title="字幕时间偏移">
+    <button id="offMinus">−0.5</button>
+    <button id="offsetVal">偏移 0.0s</button>
+    <button id="offPlus">+0.5</button>
+  </span>
+  <button id="followBtn" class="on">跟随 开</button>
+  <button id="subBtn">字幕 关</button>
+  <button id="themeBtn">☀︎</button>
+</div>
+
+<div id="main">
+  <div id="left">
+    <video id="video" controls playsinline preload="metadata"></video>
+    <div id="subBox"><div id="subEn"></div><div id="subCn"></div></div>
+  </div>
+  <div id="divider"></div>
+  <div id="right">
+    <div id="notes">
+      <div id="hint">
+        点左上角 <b>📂 打开文件</b>，一次选好三个文件（也可以分几次选）：<br>
+        · 视频 <b>.mp4</b><br>
+        · 字幕 <b>.ass</b>（中英双语）<br>
+        · 笔记 <b>.md</b><br>
+        文件只在本机读取，不会上传。
+      </div>
+    </div>
+    <button id="followChip">⤓ 回到当前句</button>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   1. 读文件：自动识别编码（UTF-16 / UTF-8 / GBK），跟 clean_ass.py 一样
+   ===================================================================== */
+async function readText(file) {
+  const buf = new Uint8Array(await file.arrayBuffer());
+  // 开头两个字节是 FF FE / FE FF → UTF-16
+  if (buf[0] === 0xFF && buf[1] === 0xFE) return new TextDecoder("utf-16le").decode(buf);
+  if (buf[0] === 0xFE && buf[1] === 0xFF) return new TextDecoder("utf-16be").decode(buf);
+  try {
+    // fatal: true → 遇到不合法的 UTF-8 直接报错，好退回 GBK
+    return new TextDecoder("utf-8", { fatal: true }).decode(buf).replace(/^﻿/, "");
+  } catch (e) {
+    return new TextDecoder("gbk").decode(buf);
+  }
+}
+
+/* =====================================================================
+   2. 解析 ASS：只要 Dialogue 行，清标签，丢掉片头片尾特效和字卡
+      规则照搬 season 10/clean_ass.py
+   ===================================================================== */
+const CJK = /[一-鿿]/;
+const POS_RE = /\\pos\(|\\an\d|\\move\(|\\p[1-9]/;   // 带定位/绘图 → 字卡或特效
+
+function assTime(s) {
+  // "0:01:02.35" → 秒
+  const [h, m, sec] = s.trim().split(":");
+  return (+h) * 3600 + (+m) * 60 + parseFloat(sec);
+}
+
+function stripTags(s) {
+  return s
+    .replace(/\\h/g, " ")                       // 硬空格（要在清孤立标签之前换掉）
+    .replace(/\\n/g, " ")                       // 小写 \n 软换行
+    .replace(/\{[^}]*\}/g, "")                  // 成对 {...} 标签
+    .replace(/\\[a-zA-Z]+[0-9]*\}?|[{}]/g, "")  // 漏了花括号的孤立标签兜底
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parseASS(text) {
+  const rows = [];
+  for (const line of text.split(/\r?\n/)) {
+    if (!line.startsWith("Dialogue:")) continue;     // Comment: 行自然跳过
+    // 前 9 个逗号是字段，第 10 段才是正文（正文里可能有逗号）
+    const f = [];
+    let rest = line.slice(9);
+    for (let k = 0; k < 9; k++) {
+      const i = rest.indexOf(",");
+      if (i < 0) break;
+      f.push(rest.slice(0, i)); rest = rest.slice(i + 1);
+    }
+    if (f.length < 9) continue;
+    const body = rest;
+    if (POS_RE.test(body)) continue;                  // 字卡 / 特效，丢
+
+    const parts = body.split("\\N").map(stripTags).filter(p => p);
+    if (parts.length < 2) continue;                   // 单行：片头字卡 / 译注，丢
+    const cn = parts[parts.length - 2], en = parts[parts.length - 1];
+    if (CJK.test(en)) continue;                       // 右侧有中文 → 不是真台词
+    rows.push({ start: assTime(f[1]), end: assTime(f[2]), cn, en });
+  }
+  rows.sort((a, b) => a.start - b.start);             // 片头字卡常排在文件最前，必须排序
+  return rows;
+}
+
+/* =====================================================================
+   3. 解析笔记 md → 块列表
+      每个 ### 开一个块，块里装它下面的注释行，直到下一个 ### / ## / ---
+   ===================================================================== */
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function inline(s) {
+  // 行内格式：先转义，再处理 **加粗** 和 `code`
+  return esc(s)
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+}
+
+// → 行按前缀分色：从上到下，先匹配上的算数
+function arrowClass(t) {
+  if (/^(P5 信号|P5信号|P6a|P6b|P6c|不是)/.test(t)) return "red";
+  if (/^register[:：]/.test(t)) return "orange";
+  if (/^同族[：:]/.test(t)) return "blue";
+  if (/^["“]/.test(t)) return "gray";
+  return "body";
+}
+
+function parseMD(text) {
+  const items = [];      // 按顺序排的渲染单元：{type, html} 或 {type:"block", ...}
+  const blocks = [];     // 只放 ### 块，匹配用
+  let cur = null;        // 当前正在收集的 ### 块
+
+  const push = (html) => (cur ? cur.lines : items).push(html);
+  const closeBlock = () => { cur = null; };
+
+  for (let raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/\\\s*$/, "").replace(/\s+$/, "");   // 去掉行尾 \（md 硬换行）
+    if (/^---+$/.test(line)) { closeBlock(); items.push({ type: "hr" }); continue; }
+    if (line.startsWith("### ")) {
+      const title = line.slice(4).replace(/\*\*/g, "").trim();
+      cur = { type: "block", title, lines: [], idx: blocks.length };
+      blocks.push(cur); items.push(cur);
+      continue;
+    }
+    if (line.startsWith("## ")) { closeBlock(); items.push({ type: "h2", html: inline(line.slice(3)) }); continue; }
+    if (line.startsWith("# "))  { closeBlock(); items.push({ type: "h1", html: inline(line.slice(2)) }); continue; }
+    if (line.trim() === "") continue;
+
+    let cls, body = line;
+    if (line.startsWith("> "))                cls = "quote", body = line.slice(2);
+    else if (line.startsWith("→"))            cls = arrowClass(line.slice(1).trim());
+    else if (line.startsWith("= "))           cls = "def";
+    else if (/^(\d+\.|[-*]) /.test(line))    cls = "list";
+    else                                       cls = "body";
+    const html = cls === "quote" ? `<div class="quote">${inline(body)}</div>`
+                                 : `<p class="${cls}">${inline(body)}</p>`;
+    push(html);
+  }
+  return { items, blocks };
+}
+
+/* =====================================================================
+   4. 匹配：### 台词 ↔ 字幕行
+      - 统一成小写单词（去标点、去撇号）再比
+      - 一个 ### 可能对应 1~4 条连续字幕（笔记有时把两行拼成一句）
+      - 用动态规划（DP）做"单调向前"的整体最优对齐：
+        所有块的位置只能往后走，不许回跳；匹配不上的块跳过，不影响其他块
+   ===================================================================== */
+const SYN = { okay: "ok", til: "until", till: "until" };
+function tokens(s) {
+  return (s.toLowerCase()
+    .replace(/[’‘`']/g, "")          // it's → its，让撇号不影响比较
+    .replace(/&/g, " and ")
+    .match(/[a-z0-9]+/g) || []).map(w => SYN[w] || w);
+}
+
+// 两个单词序列的最长公共子序列长度（Excel 里想象成两列逐行比对，找最长的"按顺序都出现"的那串）
+function lcs(a, b) {
+  const dp = new Array(b.length + 1).fill(0);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = 0;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = dp[j];
+      dp[j] = a[i - 1] === b[j - 1] ? prev + 1 : Math.max(dp[j], dp[j - 1]);
+      prev = tmp;
+    }
+  }
+  return dp[b.length];
+}
+
+const MAX_WIN = 4;   // 一个 ### 最多拼几条字幕
+
+// 块 A 和字幕窗口 C 的相似度：返回 0 表示"不算匹配"
+function similarity(A, Ajoin, C, Cjoin) {
+  if (!A.length || !C.length) return 0;
+  // 去空格后整段包含 → 直接算满分覆盖（解决 crackhouse / crack house 这类空格差异）
+  let cover;
+  if (Cjoin.includes(Ajoin)) cover = 1;
+  else cover = lcs(A, C) / A.length;          // 块里的词有多少按顺序出现在字幕里
+  const prec = Math.min(1, A.length / C.length);  // 字幕窗口有没有多拼无关的行
+  // 门槛：越短的句子要求越严，短句必须完全包含
+  const need = A.length <= 2 ? 1 : A.length <= 4 ? 0.75 : 0.6;
+  if (cover < need) return 0;
+  return cover * (0.8 + 0.2 * prec);
+}
+
+function matchBlocks(blocks, rows) {
+  const S = rows.length, B = blocks.length;
+  const rowTok = rows.map(r => tokens(r.en));
+  const rowSet = rowTok.map(t => new Set(t));
+
+  // sim[b] = Map(字幕起点 i → {score, win})
+  const sim = blocks.map(bl => {
+    const A = tokens(bl.title), Ajoin = A.join("");
+    const m = new Map();
+    for (let i = 0; i < S; i++) {
+      let best = null, C = [], hits = new Set();
+      for (let w = 1; w <= MAX_WIN && i + w - 1 < S; w++) {
+        C = C.concat(rowTok[i + w - 1]);
+        for (const t of A) if (rowSet[i + w - 1].has(t)) hits.add(t);
+        // 快速剪枝：块里的词在窗口里出现得太少，就别算 LCS 了
+        if (hits.size < Math.min(A.length, new Set(A).size) * 0.5 && !C.join("").includes(Ajoin)) continue;
+        const sc = similarity(A, Ajoin, C, C.join(""));
+        if (sc > 0 && (!best || sc > best.score)) best = { score: sc, win: w };
+        if (best && best.score >= 0.999) break;
+      }
+      if (best) m.set(i, best);
+    }
+    return m;
+  });
+
+  // DP：M[i] = 前 b 个块、最后一个匹配位置 ≤ i 时的最高总分
+  let prev = new Float64Array(S).fill(0);
+  const choice = [];   // choice[b][i]: 0=沿用左边(i-1) 1=跳过本块 2=本块匹配在 i
+  for (let b = 0; b < B; b++) {
+    const cur = new Float64Array(S), ch = new Uint8Array(S);
+    for (let i = 0; i < S; i++) {
+      let v = i > 0 ? cur[i - 1] : -Infinity, c = 0;
+      if (prev[i] > v) { v = prev[i]; c = 1; }
+      const s = sim[b].get(i);
+      if (s && prev[i] + s.score > v + 1e-9) { v = prev[i] + s.score; c = 2; }
+      cur[i] = v; ch[i] = c;
+    }
+    choice.push(ch); prev = cur;
+  }
+  // 回溯：从最后一个块往前找每个块落在哪
+  for (const bl of blocks) { bl.row = -1; bl.win = 0; }
+  let b = B - 1, i = S - 1;
+  while (b >= 0 && i >= 0) {
+    const c = choice[b][i];
+    if (c === 0) i--;
+    else if (c === 1) b--;
+    else { const s = sim[b].get(i); blocks[b].row = i; blocks[b].win = s.win; blocks[b].score = s.score; b--; }
+  }
+  for (const bl of blocks) bl.start = bl.row >= 0 ? rows[bl.row].start : null;
+  return blocks;
+}
+
+/* =====================================================================
+   5. 页面状态 + 渲染
+   ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const video = $("video"), notesEl = $("notes");
+const state = {
+  videoName: "", assName: "", mdName: "",
+  rows: [],          // 字幕行
+  md: null,          // parseMD 结果
+  timeline: [],      // 匹配上的块：[{start, el, block}]，按时间排
+  offset: 0,         // 秒：视频时间 = 字幕时间 + offset
+  follow: true,      // 自动跟随开关
+  pausedUntil: 0,    // 手动滚动后，暂停跟随到这个时间点（ms）
+  activeIdx: -1,
+  showSub: false,
+};
+
+function fmt(t) {
+  const m = Math.floor(t / 60), s = Math.floor(t % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function renderNotes() {
+  const { items } = state.md;
+  const html = items.map(it => {
+    if (it.type === "hr") return "<hr>";
+    if (it.type === "h1") return `<h1>${it.html}</h1>`;
+    if (it.type === "h2") return `<h2>${it.html}</h2>`;
+    if (it.type === "block") {
+      const ok = it.start != null;
+      const tag = ok ? `<span class="time">${fmt(it.start + state.offset)}</span>`
+                     : `<span class="miss">未匹配</span>`;
+      return `<div class="block${ok ? "" : " nomatch"}" data-b="${it.idx}">` +
+             `<div class="h3wrap"><h3>${esc(it.title)}</h3>${tag}</div>${it.lines.join("")}</div>`;
+    }
+    return it; // 普通行（字符串）
+  }).join("");
+  notesEl.innerHTML = html;
+
+  // 建时间轴：只收匹配上的块
+  state.timeline = [];
+  notesEl.querySelectorAll(".block").forEach(el => {
+    const bl = state.md.blocks[+el.dataset.b];
+    if (bl.start != null) state.timeline.push({ start: bl.start, el, block: bl });
+  });
+  state.activeIdx = -1;
+  sync(true);
+}
+
+function updateTimes() {
+  // 偏移变了，只刷新块上的时间标签，不重建 DOM
+  for (const t of state.timeline) t.el.querySelector(".time").textContent = fmt(t.start + state.offset);
+}
+
+function runMatch() {
+  if (!state.md || !state.rows.length) {
+    if (state.md) renderNotes();   // 只有笔记也先显示出来
+    updateStatus();
+    return;
+  }
+  matchBlocks(state.md.blocks, state.rows);
+  renderNotes();
+  updateStatus();
+}
+
+function updateStatus() {
+  const ck = (name, label) => name ? `${label} ✓` : `<span style="opacity:.55">${label} ✗</span>`;
+  let s = `${ck(state.videoName, "视频")} · ${ck(state.assName, "字幕")} · ${ck(state.mdName, "笔记")}`;
+  if (state.md && state.rows.length) {
+    const n = state.md.blocks.length, ok = state.md.blocks.filter(b => b.start != null).length;
+    s += `<br>匹配 <b>${ok}/${n}</b>`;
+  }
+  $("status").innerHTML = s;
+}
+
+/* =====================================================================
+   6. 加载文件：按扩展名自动分拣
+   ===================================================================== */
+$("fileInput").addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  for (const f of files) {
+    const name = f.name.toLowerCase();
+    if (name.endsWith(".ass") || name.endsWith(".ssa")) {
+      state.rows = parseASS(await readText(f)); state.assName = f.name;
+    } else if (name.endsWith(".md") || name.endsWith(".markdown") || name.endsWith(".txt")) {
+      state.md = parseMD(await readText(f)); state.mdName = f.name;
+    } else if (f.type.startsWith("video/") || /\.(mp4|m4v|mov|webm)$/.test(name)) {
+      if (video.src) URL.revokeObjectURL(video.src);   // 释放上一个视频占的内存
+      video.src = URL.createObjectURL(f); state.videoName = f.name;
+    }
+  }
+  e.target.value = "";   // 允许重复选同一个文件
+  runMatch();
+});
+
+/* =====================================================================
+   7. 同步：视频播到哪，笔记跟到哪
+   ===================================================================== */
+// 二分查找：最后一个 start + offset ≤ t 的块
+function findActive(t) {
+  const tl = state.timeline;
+  let lo = 0, hi = tl.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (tl[mid].start + state.offset <= t + 0.05) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  return ans;
+}
+
+let programmatic = 0;   // 程序自己在滚动的时间戳，用来区分"我滚的"和"用户滚的"
+function scrollToEl(el, smooth = true) {
+  const top = el.offsetTop - notesEl.clientHeight * 0.28;   // 放在偏上 1/4 处，下面留出阅读空间
+  programmatic = Date.now();
+  notesEl.scrollTo({ top: Math.max(0, top), behavior: smooth ? "smooth" : "auto" });
+}
+
+function followActive() {
+  return state.follow && Date.now() > state.pausedUntil;
+}
+
+function sync(force = false) {
+  const t = video.currentTime || 0;
+  // 笔记高亮
+  if (state.timeline.length) {
+    const i = findActive(t);
+    if (i !== state.activeIdx || force) {
+      if (state.activeIdx >= 0 && state.timeline[state.activeIdx]) state.timeline[state.activeIdx].el.classList.remove("active");
+      state.activeIdx = i;
+      if (i >= 0) {
+        const el = state.timeline[i].el;
+        el.classList.add("active");
+        if (followActive()) scrollToEl(el, !force);
+      }
+    }
+  }
+  // 视频下方字幕
+  if (state.showSub) {
+    const r = currentRow(t);
+    $("subEn").textContent = r ? r.en : "";
+    $("subCn").textContent = r ? r.cn : "";
+  }
+  // 暂停跟随倒计时结束 → 自动回到当前句
+  const chip = $("followChip");
+  if (state.follow && state.pausedUntil && Date.now() > state.pausedUntil) {
+    state.pausedUntil = 0; chip.classList.remove("show");
+    if (state.activeIdx >= 0) scrollToEl(state.timeline[state.activeIdx].el);
+  }
+}
+
+function currentRow(t) {
+  const rows = state.rows;
+  let lo = 0, hi = rows.length - 1, ans = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (rows[mid].start + state.offset <= t) { ans = mid; lo = mid + 1; } else hi = mid - 1;
+  }
+  // 往回看几条，处理两句重叠的情况
+  for (let k = ans; k >= 0 && k > ans - 3; k--) {
+    if (t < rows[k].end + state.offset) return rows[k];
+  }
+  return null;
+}
+
+// 播放时每帧检查一次（比 timeupdate 的 4 次/秒更跟手），暂停时也保留一个慢速兜底
+function loop() { sync(); requestAnimationFrame(loop); }
+requestAnimationFrame(loop);
+video.addEventListener("seeked", () => sync(true));
+
+/* =====================================================================
+   8. 手动滚笔记 → 暂停跟随；4 秒没操作后恢复
+   ===================================================================== */
+const PAUSE_MS = 4000;
+function userScrolled() {
+  if (!state.follow) return;
+  state.pausedUntil = Date.now() + PAUSE_MS;
+  $("followChip").classList.add("show");
+}
+// 触摸、滚轮、键盘翻页都算"用户在滚"
+notesEl.addEventListener("touchstart", userScrolled, { passive: true });
+notesEl.addEventListener("touchmove", userScrolled, { passive: true });
+notesEl.addEventListener("wheel", userScrolled, { passive: true });
+notesEl.addEventListener("scroll", () => {
+  // 滚动条拖动等其他来源：不是程序刚触发的滚动（1 秒内）就算用户
+  if (Date.now() - programmatic > 1000 && state.pausedUntil) state.pausedUntil = Date.now() + PAUSE_MS;
+}, { passive: true });
+
+$("followChip").addEventListener("click", () => {
+  state.pausedUntil = 0; $("followChip").classList.remove("show");
+  if (state.activeIdx >= 0) scrollToEl(state.timeline[state.activeIdx].el);
+});
+
+/* =====================================================================
+   9. 点笔记块 → 视频跳到那句开头
+   ===================================================================== */
+notesEl.addEventListener("click", (e) => {
+  const el = e.target.closest(".block");
+  if (!el || window.getSelection().toString()) return;   // 在选字就别跳
+  const bl = state.md.blocks[+el.dataset.b];
+  if (bl.start == null || !video.src) return;
+  video.currentTime = Math.max(0, bl.start + state.offset);
+  state.pausedUntil = 0; $("followChip").classList.remove("show");   // 点了就恢复跟随
+});
+
+/* =====================================================================
+   10. 顶栏按钮
+   ===================================================================== */
+function setOffset(v) {
+  state.offset = Math.round(v * 10) / 10;
+  $("offsetVal").textContent = `偏移 ${state.offset > 0 ? "+" : ""}${state.offset.toFixed(1)}s`;
+  updateTimes(); sync(true);
+}
+$("offMinus").onclick = () => setOffset(state.offset - 0.5);
+$("offPlus").onclick  = () => setOffset(state.offset + 0.5);
+$("offsetVal").onclick = () => {
+  // 点中间的数字可以直接输入精确值；正数 = 字幕往后推
+  const v = prompt("字幕偏移（秒）。字幕比画面早就填正数，晚就填负数：", state.offset);
+  if (v !== null && v.trim() !== "" && !isNaN(+v)) setOffset(+v);
+};
+
+$("followBtn").onclick = () => {
+  state.follow = !state.follow;
+  $("followBtn").classList.toggle("on", state.follow);
+  $("followBtn").textContent = state.follow ? "跟随 开" : "跟随 关";
+  state.pausedUntil = 0; $("followChip").classList.remove("show");
+  if (state.follow) sync(true);
+};
+
+$("subBtn").onclick = () => {
+  state.showSub = !state.showSub;
+  $("subBtn").classList.toggle("on", state.showSub);
+  $("subBtn").textContent = state.showSub ? "字幕 开" : "字幕 关";
+  $("subBox").classList.toggle("show", state.showSub);
+  sync(true);
+};
+
+$("themeBtn").onclick = () => {
+  const root = document.documentElement;
+  const dark = root.dataset.theme !== "light";
+  root.dataset.theme = dark ? "light" : "dark";
+  $("themeBtn").textContent = dark ? "☾" : "☀︎";
+  document.querySelector('meta[name="theme-color"]').content = dark ? "#ebe9e3" : "#16161a";
+};
+
+// 点完按钮就把焦点还回去，免得空格键又"点"一次按钮
+document.addEventListener("click", (e) => { if (e.target.closest("button")) e.target.closest("button").blur(); });
+
+/* =====================================================================
+   11. 分隔条拖动（手指、鼠标、Apple Pencil 都行）
+   ===================================================================== */
+(() => {
+  const div = $("divider"), main = $("main");
+  let dragging = false;
+  div.addEventListener("pointerdown", (e) => { dragging = true; div.setPointerCapture(e.pointerId); });
+  div.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    const r = main.getBoundingClientRect();
+    const pct = Math.min(80, Math.max(25, (e.clientX - r.left) / r.width * 100));
+    main.style.setProperty("--split", pct + "%");
+  });
+  const end = () => { dragging = false; };
+  div.addEventListener("pointerup", end);
+  div.addEventListener("pointercancel", end);
+})();
+
+/* =====================================================================
+   12. 外接键盘：空格 播放/暂停，← / → 跳 5 秒
+   ===================================================================== */
+document.addEventListener("keydown", (e) => {
+  if (/INPUT|TEXTAREA/.test(e.target.tagName)) return;
+  if (!video.src) return;
+  if (e.code === "Space") {
+    e.preventDefault();                           // 否则页面会往下翻 / 视频自己再切一次
+    video.paused ? video.play() : video.pause();
+  } else if (e.key === "ArrowLeft") {
+    e.preventDefault(); video.currentTime = Math.max(0, video.currentTime - 5);
+  } else if (e.key === "ArrowRight") {
+    e.preventDefault(); video.currentTime = Math.min(video.duration || 1e9, video.currentTime + 5);
+  }
+});
+
+/* =====================================================================
+   13. PWA：注册 service worker，让主屏幕图标断网也能打开页面
+   ===================================================================== */
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
+  navigator.serviceWorker.register("sw.js").catch(() => {});
+}
+
+// 给调试 / 测试用：在控制台能直接调用解析和匹配函数
+window.VP = { parseASS, parseMD, matchBlocks, tokens, state };
+</script>
+</body>
+</html>
