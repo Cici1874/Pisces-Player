@@ -1,6 +1,6 @@
 // Service worker：把页面本身缓存起来，主屏幕图标断网也能打开。
 // 策略：先走网络（拿到最新版），网络不通再用缓存。视频/字幕/笔记是本地 blob，不经过这里。
-const CACHE = "vocab-player-v1";
+const CACHE = "vocab-player-v2";
 const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-512.png"];
 
 self.addEventListener("install", (e) => {

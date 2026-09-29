@@ -1,6 +1,6 @@
 {
-  "name": "看剧笔记播放器",
-  "short_name": "看剧笔记",
+  "name": "English World",
+  "short_name": "English World",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
